@@ -1,0 +1,11 @@
+[plugin]
+name = "ports"
+kind = "sidebar"
+version = "0.1.0"
+description = "Browse localhost listening ports and open them in cmux"
+
+[run]
+command = ["target/release/cmux-sidebar-ports"]
+
+[build]
+command = ["cargo", "build", "--release"]

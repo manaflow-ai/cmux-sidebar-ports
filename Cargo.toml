@@ -1,0 +1,15 @@
+[package]
+name = "cmux-sidebar-ports"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Browse localhost listening ports from a cmux sidebar"
+repository = "https://github.com/manaflow-ai/cmux-sidebar-ports"
+homepage = "https://github.com/manaflow-ai/cmux-sidebar-ports"
+
+[dependencies]
+anyhow = "1.0.100"
+cmux-client = "0.1"
+crossterm = "0.29.0"
+ratatui = "0.30.2"
