@@ -26,6 +26,7 @@ jobs:
     concurrency:
       group: cla-signatures
       cancel-in-progress: false
+      queue: max
     steps:
       - name: "Reject pull requests over 100 commits"
         # The archived action only inspects the first 100 commits. Reject
