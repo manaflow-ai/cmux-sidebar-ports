@@ -279,9 +279,13 @@ jobs:
       issues: write
       pull-requests: read
     # Keep merged-PR locking isolated to this repository and pull request.
-    # The live closed+merged preflight below is the only lock admission gate.
+    # Keep lock admission separate from signer admission so a close event
+    # cannot replace a pending signature run, or vice versa. The live
+    # closed+merged preflight below is the only lock admission gate. A
+    # concurrent close can still make a signer comment update fail after
+    # its ledger write; that availability residual needs a recheck.
     concurrency:
-      group: cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: cla-lock-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     if: >-
       github.event_name == 'pull_request_target' &&
