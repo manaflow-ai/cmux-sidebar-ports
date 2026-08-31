@@ -98,8 +98,8 @@ jobs:
     # The maintained action retries 409 ledger conflicts by refetching,
     # merging, and revalidating before each write, so PR groups can run in
     # parallel without dropping another PR's signature.
-    # It also re-fetches accepted comments and the live PR before each write,
-    # rejecting edited or deleted declarations and stale bot markers.
+    # It also re-fetches accepted signing comments and the live PR before each
+    # ledger write, rejecting edited or deleted declarations before persistence.
     concurrency:
       group: cla-signatures-${{ github.repository }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
