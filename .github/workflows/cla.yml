@@ -353,13 +353,13 @@ jobs:
       EVENT_ACTION: ${{ github.event.action }}
       EVENT_STATE: ${{ github.event.pull_request.state }}
       EVENT_MERGED: ${{ github.event.pull_request.merged }}
-      EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-      EVENT_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
-      EVENT_HEAD_REPO_ID: ${{ github.event.pull_request.head.repo.id }}
+      EVENT_REPO_FULL_NAME: ${{ github.event.repository.full_name }}
+      EVENT_REPO_ID: ${{ github.event.repository.id }}
       EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
       EVENT_BASE_REPO_FULL_NAME: ${{ github.event.pull_request.base.repo.full_name }}
       EVENT_BASE_REPO_ID: ${{ github.event.pull_request.base.repo.id }}
+      EVENT_OPENER_LOGIN: ${{ github.event.pull_request.user.login }}
+      EVENT_OPENER_ID: ${{ github.event.pull_request.user.id }}
     steps:
       - name: "Lock merged pull request"
         run: |
@@ -372,27 +372,31 @@ jobs:
             echo "::error title=CLA lock preflight failed::The close event is not a merged pull request event."
             exit 1
           fi
-          if [[ "${EVENT_BASE_REF}" != "main" || -z "${EVENT_BASE_REPO_FULL_NAME}" || -z "${EVENT_HEAD_REF}" || -z "${EVENT_HEAD_REPO_FULL_NAME}" ]]; then
+          if [[ -z "${EVENT_REPO_FULL_NAME}" || -z "${EVENT_BASE_REPO_FULL_NAME}" || -z "${EVENT_BASE_REF}" || -z "${EVENT_OPENER_LOGIN}" ]]; then
             echo "::error title=CLA lock preflight failed::The close event has incomplete repository identity."
             exit 1
           fi
-          if ! [[ "${EVENT_BASE_REPO_ID}" =~ ^[1-9][0-9]*$ ]] || ! [[ "${EVENT_HEAD_REPO_ID}" =~ ^[1-9][0-9]*$ ]]; then
+          if ! [[ "${EVENT_REPO_ID}" =~ ^[1-9][0-9]*$ ]] || ! [[ "${EVENT_BASE_REPO_ID}" =~ ^[1-9][0-9]*$ ]] || ! [[ "${EVENT_OPENER_ID}" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error title=CLA lock preflight failed::The close event has an invalid repository ID."
             exit 1
           fi
-          if ! [[ "${EVENT_HEAD_SHA}" =~ ^[0-9A-Fa-f]{40}$ ]]; then
-            echo "::error title=CLA lock preflight failed::The close event has an invalid head commit."
+          if [[ "${EVENT_REPO_FULL_NAME,,}" != "${GH_REPO,,}" || "${EVENT_BASE_REPO_FULL_NAME,,}" != "${GH_REPO,,}" || "${EVENT_BASE_REF}" != "main" || "${EVENT_REPO_ID}" != "${EVENT_BASE_REPO_ID}" ]]; then
+            echo "::error title=CLA lock preflight failed::The close event targets a different base repository or branch."
             exit 1
           fi
 
           pr_endpoint="repos/${GH_REPO}/pulls/${PR_NUMBER}"
-          if ! pr_json="$(gh api "${pr_endpoint}" --jq '{state: .state, merged: (.merged_at != null), base_ref: .base.ref, base_repo_full_name: .base.repo.full_name, base_repo_id: .base.repo.id, head_ref: .head.ref, head_sha: .head.sha, head_repo_full_name: .head.repo.full_name, head_repo_id: .head.repo.id}' 2>/dev/null)"; then
+          if ! pr_json="$(gh api "${pr_endpoint}" --jq '{number: .number, state: .state, merged: (.merged_at != null), base_ref: .base.ref, base_repo_full_name: .base.repo.full_name, base_repo_id: .base.repo.id, head_ref: .head.ref, head_sha: .head.sha, head_repo_present: (.head.repo != null), head_repo_full_name: .head.repo.full_name, head_repo_id: .head.repo.id, opener_login: .user.login, opener_id: .user.id}' 2>/dev/null)"; then
             echo "::error title=CLA lock preflight failed::Unable to query the live pull request state."
             exit 1
           fi
           json_field() {
             jq -er "$1" <<<"${pr_json}" 2>/dev/null
           }
+          if ! live_number="$(json_field '.number | numbers')" || [[ "${live_number}" != "${PR_NUMBER}" ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request number does not match the event."
+            exit 1
+          fi
           if ! live_state="$(json_field '.state')" || [[ "${live_state}" != "closed" ]]; then
             echo "::error title=CLA lock preflight failed::The live pull request is not closed."
             exit 1
@@ -405,7 +409,11 @@ jobs:
             echo "::error title=CLA lock preflight failed::The live pull request does not target main."
             exit 1
           fi
-          if ! live_base_repo_full_name="$(json_field '.base_repo_full_name | strings')" || [[ "${live_base_repo_full_name}" != "${GH_REPO}" ]]; then
+          if ! live_base_repo_full_name="$(json_field '.base_repo_full_name | strings')"; then
+            echo "::error title=CLA lock preflight failed::The live pull request targets a different repository."
+            exit 1
+          fi
+          if [[ "${live_base_repo_full_name,,}" != "${GH_REPO,,}" ]]; then
             echo "::error title=CLA lock preflight failed::The live pull request targets a different repository."
             exit 1
           fi
@@ -413,29 +421,94 @@ jobs:
             echo "::error title=CLA lock preflight failed::The live pull request has an invalid base repository ID."
             exit 1
           fi
-          if ! live_head_ref="$(json_field '.head_ref | strings')" || [[ -z "${live_head_ref}" ]]; then
+          if ! live_head_ref="$(json_field '.head_ref | strings')"; then
             echo "::error title=CLA lock preflight failed::The live pull request has no valid head ref."
             exit 1
           fi
-          if ! live_head_sha="$(json_field '.head_sha | strings')" || ! [[ "${live_head_sha}" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+          if [[ -z "${live_head_ref}" ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request has no valid head ref."
+            exit 1
+          fi
+          if ! live_head_sha="$(json_field '.head_sha | strings')"; then
             echo "::error title=CLA lock preflight failed::The live pull request has no valid head commit."
             exit 1
           fi
-          if ! live_head_repo_full_name="$(json_field '.head_repo_full_name | strings')" || [[ -z "${live_head_repo_full_name}" ]]; then
-            echo "::error title=CLA lock preflight failed::The live pull request has no valid head repository name."
+          if ! [[ "${live_head_sha}" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request has no valid head commit."
             exit 1
           fi
-          if ! live_head_repo_id="$(json_field '.head_repo_id | numbers')" || ! [[ "${live_head_repo_id}" =~ ^[1-9][0-9]*$ ]]; then
-            echo "::error title=CLA lock preflight failed::The live pull request has an invalid head repository ID."
+          if ! live_head_repo_present="$(jq -er 'if (.head_repo_present | type) == "boolean" then (.head_repo_present | tostring) else error("invalid boolean") end' <<<"${pr_json}" 2>/dev/null)"; then
+            echo "::error title=CLA lock preflight failed::The live pull request has an invalid head repository shape."
             exit 1
           fi
-          if [[ "${live_base_repo_full_name}" != "${EVENT_BASE_REPO_FULL_NAME}" ||
-            "${live_base_repo_id}" != "${EVENT_BASE_REPO_ID}" ||
-            "${live_base_ref}" != "${EVENT_BASE_REF}" ||
-            "${live_head_ref}" != "${EVENT_HEAD_REF}" ||
-            "${live_head_sha}" != "${EVENT_HEAD_SHA}" ||
-            "${live_head_repo_full_name}" != "${EVENT_HEAD_REPO_FULL_NAME}" ||
-            "${live_head_repo_id}" != "${EVENT_HEAD_REPO_ID}" ]]; then
+          if [[ "${live_head_repo_present}" == "true" ]]; then
+            if ! live_head_repo_full_name="$(json_field '.head_repo_full_name | strings')"; then
+              echo "::error title=CLA lock preflight failed::The live pull request has no valid head repository name."
+              exit 1
+            fi
+            if [[ -z "${live_head_repo_full_name}" ]]; then
+              echo "::error title=CLA lock preflight failed::The live pull request has no valid head repository name."
+              exit 1
+            fi
+            if ! live_head_repo_id="$(json_field '.head_repo_id | numbers')" || ! [[ "${live_head_repo_id}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error title=CLA lock preflight failed::The live pull request has an invalid head repository ID."
+              exit 1
+            fi
+          else
+            if ! live_head_repo_full_name="$(jq -er '.head_repo_full_name // "" | strings' <<<"${pr_json}" 2>/dev/null)"; then
+              echo "::error title=CLA lock preflight failed::The live pull request has an invalid deleted head repository."
+              exit 1
+            fi
+            if [[ -n "${live_head_repo_full_name}" ]]; then
+              echo "::error title=CLA lock preflight failed::The live pull request has an invalid deleted head repository."
+              exit 1
+            fi
+            if ! live_head_repo_id="$(jq -er '.head_repo_id // 0 | numbers' <<<"${pr_json}" 2>/dev/null)"; then
+              echo "::error title=CLA lock preflight failed::The live pull request has an invalid deleted head repository ID."
+              exit 1
+            fi
+            if [[ "${live_head_repo_id}" != "0" ]]; then
+              echo "::error title=CLA lock preflight failed::The live pull request has an invalid deleted head repository ID."
+              exit 1
+            fi
+          fi
+          if ! live_opener_login="$(json_field '.opener_login | strings')"; then
+            echo "::error title=CLA lock preflight failed::The live pull request opener has no valid login."
+            exit 1
+          fi
+          if [[ -z "${live_opener_login}" ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request opener has no valid login."
+            exit 1
+          fi
+          if ! live_opener_id="$(json_field '.opener_id | numbers')"; then
+            echo "::error title=CLA lock preflight failed::The live pull request opener has no valid ID."
+            exit 1
+          fi
+          if ! [[ "${live_opener_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request opener has no valid ID."
+            exit 1
+          fi
+          if [[ "${live_base_repo_full_name,,}" != "${EVENT_BASE_REPO_FULL_NAME,,}" ]]; then
+            echo "::error title=CLA lock preflight failed::The close event does not match the live pull request identity."
+            exit 1
+          fi
+          if [[ "${live_base_repo_id}" != "${EVENT_REPO_ID}" ]]; then
+            echo "::error title=CLA lock preflight failed::The close event does not match the live pull request identity."
+            exit 1
+          fi
+          if [[ "${live_base_repo_id}" != "${EVENT_BASE_REPO_ID}" ]]; then
+            echo "::error title=CLA lock preflight failed::The close event does not match the live pull request identity."
+            exit 1
+          fi
+          if [[ "${live_base_ref}" != "${EVENT_BASE_REF}" ]]; then
+            echo "::error title=CLA lock preflight failed::The close event does not match the live pull request identity."
+            exit 1
+          fi
+          if [[ "${live_opener_id}" != "${EVENT_OPENER_ID}" ]]; then
+            echo "::error title=CLA lock preflight failed::The close event does not match the live pull request identity."
+            exit 1
+          fi
+          if [[ "${live_opener_login,,}" != "${EVENT_OPENER_LOGIN,,}" ]]; then
             echo "::error title=CLA lock preflight failed::The close event does not match the live pull request identity."
             exit 1
           fi
