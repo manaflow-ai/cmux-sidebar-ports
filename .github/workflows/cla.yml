@@ -103,31 +103,18 @@ jobs:
     if: >-
       always() &&
       (
-        (
-          github.event_name == 'pull_request_target' &&
-          github.event.action != 'closed'
-        ) ||
-        (
-          github.event_name == 'issue_comment' &&
-          github.event.action == 'created' &&
-          github.event.issue.state == 'open' &&
-          github.event.issue.pull_request &&
-          github.event.comment.user.type == 'User' &&
-          github.event.comment.user.id > 0 &&
-          (
-            github.event.comment.body == 'recheck' ||
-            github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
-          )
-        )
+        needs.CLACommentGate.result != 'success' ||
+        needs.CLACommentGate.outputs.admitted == 'true'
       )
     steps:
       - name: "Require successful CLA event gate"
         env:
           CLA_GATE_RESULT: ${{ needs.CLACommentGate.result }}
+          CLA_GATE_ADMITTED: ${{ needs.CLACommentGate.outputs.admitted }}
         run: |
           set -euo pipefail
-          if [[ "${CLA_GATE_RESULT-}" != "success" ]]; then
-            echo "::error title=CLA admission failed::The CLA event gate did not complete successfully."
+          if [[ "${CLA_GATE_RESULT-}" != "success" || "${CLA_GATE_ADMITTED-}" != "true" ]]; then
+            echo "::error title=CLA admission failed::The CLA event gate did not complete successfully with an admitted event."
             exit 1
           fi
       - name: "Verify pull request identity and commit history"
