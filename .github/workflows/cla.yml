@@ -196,6 +196,116 @@ jobs:
               ;;
           esac
 
+      - name: "Reject historical CLA comment mismatches"
+        # The archived action reads one comment page and accepts a broad
+        # fallback phrase. Inspect bounded history before invoking it, while
+        # allowing the canonical bot marker that the action itself ignores.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error title=CLA comment history lookup::Invalid pull request number."
+            exit 1
+          fi
+
+          comments_endpoint="repos/${GH_REPO}/issues/${PR_NUMBER}/comments"
+          exact_comment='i have read the cla document and i hereby sign the cla'
+          broad_pattern='^.*i \s*have \s*read \s*the \s*cla \s*document \s*and \s*i \s*hereby \s*sign \s*the \s*cla.*$'
+          PAGE_COUNT=0
+
+          inspect_page() {
+            local page="$1"
+            local page_json candidate_count
+            PAGE_COUNT=""
+            if ! page_json="$(gh api "${comments_endpoint}?per_page=100&page=${page}" --jq '.' 2>/dev/null)"; then
+              return 1
+            fi
+            if ! PAGE_COUNT="$(jq -er 'if type == "array" then length else error("comments response is not an array") end' <<<"${page_json}" 2>/dev/null)"; then
+              return 1
+            fi
+            if ! [[ "${PAGE_COUNT}" =~ ^[0-9]+$ ]] || (( PAGE_COUNT > 100 )); then
+              return 1
+            fi
+            if ! candidate_count="$(jq -er \
+              --arg exact "${exact_comment}" \
+              --arg broad_pattern "${broad_pattern}" \
+              '
+                if type != "array" then
+                  error("comments response is not an array")
+                else
+                  [
+                    .[] |
+                    .body as $body |
+                    if ($body | type) != "string" then
+                      error("comment body is not a string")
+                    else
+                      ($body | ascii_downcase | gsub("^\\s+|\\s+$"; "")) as $normalized |
+                      select($normalized | test($broad_pattern)) |
+                      (.user.login // "") as $login |
+                      (.user.type // "") as $type |
+                      (.user.id // 0) as $user_id |
+                      if (($login | type) != "string" or ($type | type) != "string") then
+                        error("comment author is malformed")
+                      else
+                        ($body | ascii_downcase | contains("cla assistant lite bot")) as $canonical_marker |
+                        (if ($login | endswith("[bot]")) then true else false end) as $bot_login |
+                        ($login == "github-actions[bot]" and $type == "Bot" and $user_id == 41898282 and $canonical_marker) as $is_canonical_bot |
+                        select(($is_canonical_bot | not) and (($normalized != $exact) or ($type != "User") or ($bot_login) or ($login == "")))
+                      end
+                    end
+                  ] | length
+                end
+              ' <<<"${page_json}" 2>/dev/null)"; then
+              return 1
+            fi
+            if ! [[ "${candidate_count}" =~ ^[0-9]+$ ]]; then
+              return 1
+            fi
+            if (( candidate_count > 0 )); then
+              return 2
+            fi
+          }
+
+          total_comments=0
+          for page in {1..10}; do
+            if inspect_page "${page}"; then
+              :
+            else
+              status=$?
+              if (( status == 2 )); then
+                echo "::error title=CLA comment policy::A historical comment matches the archived CLA phrase but is not an exact human signature."
+              else
+                echo "::error title=CLA comment history lookup::Unable to validate historical comments for page ${page}."
+              fi
+              exit 1
+            fi
+            total_comments=$((total_comments + PAGE_COUNT))
+            if (( PAGE_COUNT < 100 )); then
+              echo "Historical CLA comments checked: ${total_comments}"
+              exit 0
+            fi
+          done
+
+          if inspect_page 11; then
+            overflow_count="${PAGE_COUNT}"
+          else
+            status=$?
+            if (( status == 2 )); then
+              echo "::error title=CLA comment policy::A historical comment matches the archived CLA phrase but is not an exact human signature."
+            else
+              echo "::error title=CLA comment history lookup::Unable to validate the historical comment overflow page."
+            fi
+            exit 1
+          fi
+          if (( overflow_count > 0 )); then
+            echo "::error title=CLA comment history limit::This pull request has more than 1000 comments; historical CLA validation stopped safely."
+            exit 1
+          fi
+          echo "Historical CLA comments checked: ${total_comments}"
+
       - name: "CLA Assistant v2"
         # The action handles signing and status updates. Merged pull requests
         # use the separate lock job below because the archived action sends

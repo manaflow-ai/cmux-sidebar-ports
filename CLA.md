@@ -4,6 +4,8 @@ Thank you for your interest in cmux-sidebar-ports, an open-source project of Man
 
 Read this Agreement carefully before signing. For contributions through GitHub, sign it by posting this exact sentence as a comment on your pull request: "I have read the CLA Document and I hereby sign the CLA". The CLA Assistant records that comment as your signature. If you contribute on behalf of an entity, contact Manaflow, Inc. before contributing and arrange a separate Corporate CLA.
 
+For contributions through GitHub, posting that exact comment is Your electronic signature to this Agreement and has the same effect as a handwritten signature on this Agreement.
+
 This Agreement is maintained in English and the English version controls. Any translation is provided for convenience only and does not change the terms of this Agreement.
 
 | | |
