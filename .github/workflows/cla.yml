@@ -5,11 +5,6 @@ on:
   pull_request_target:
     types: [opened,closed,reopened,synchronize]
 
-# Signature updates share one file and must not race.
-concurrency:
-  group: cla-signatures
-  cancel-in-progress: false
-
 # Keep the token scoped to the GitHub API operations used by this action.
 permissions:
   # The action inspects prior runs; its optional rerun request is best-effort.
@@ -26,6 +21,11 @@ jobs:
   CLAAssistant:
     name: "CLA Assistant"
     runs-on: ubuntu-latest
+    # Serialize signature-file updates. The merged-PR lock job below is
+    # independent so a later comment cannot replace a pending lock run.
+    concurrency:
+      group: cla-signatures
+      cancel-in-progress: false
     steps:
       - name: "Reject pull requests over 100 commits"
         # The archived action only inspects the first 100 commits. Reject
@@ -61,7 +61,7 @@ jobs:
 
       - name: "CLA Assistant"
         # The action handles signing and status updates. Merged pull requests
-        # use the explicit lock step below because the archived action sends
+        # use the separate lock job below because the archived action sends
         # an invalid lock request.
         if: >-
           (
@@ -92,15 +92,21 @@ jobs:
           # account is a GitHub bot and would let a human bypass the CLA.
           allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot]
 
+  LockMergedPullRequest:
+    name: "Lock merged pull request"
+    runs-on: ubuntu-latest
+    # Keep this job outside the signature concurrency group. It does not
+    # modify the signature file and must not be replaced by a comment run.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
       - name: "Lock merged pull request"
-        if: >-
-          github.event_name == 'pull_request_target' &&
-          github.event.action == 'closed' &&
-          github.event.pull_request.merged == true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           issue_endpoint="repos/${GH_REPO}/issues/${PR_NUMBER}"
