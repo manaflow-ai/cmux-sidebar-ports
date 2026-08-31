@@ -89,8 +89,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-    # Keep this job outside the signature concurrency group. It does not
-    # modify the signature file and must not be replaced by a comment run.
+    # Serialize locking with signature writes so a merged pull request cannot
+    # race a still-running CLA update for the same repository.
+    concurrency:
+      group: cla-signatures
+      cancel-in-progress: false
+      queue: max
     if: >-
       github.event_name == 'pull_request_target' &&
       github.event.action == 'closed' &&
