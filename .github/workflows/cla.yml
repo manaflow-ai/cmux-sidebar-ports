@@ -15,9 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      # Temporary: v2.6.1 reruns the failed CLA workflow after signing and
-      # requires actions: write. Remove this when rerun logic is isolated.
-      actions: write
+      # The exact-head rerun worker is not deployed yet. Keep recovery
+      # advisory until it is available; the archived action cannot rerun here.
+      actions: read
       contents: write
       issues: write
       # GitHub's pull_request_target token denied issue comments for fork PRs
