@@ -50,7 +50,10 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
           set -euo pipefail
-          commits="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.commits')"
+          if ! commits="$(gh api "repos/${GH_REPO}/pulls/${PR_NUMBER}" --jq '.commits')"; then
+            echo "::error title=CLA commit preflight failed::Unable to read the commit count for pull request ${PR_NUMBER}."
+            exit 1
+          fi
           if ! [[ "${commits}" =~ ^[0-9]+$ ]]; then
             echo "::error title=CLA commit preflight failed::GitHub returned an invalid commit count for pull request ${PR_NUMBER}."
             exit 1
