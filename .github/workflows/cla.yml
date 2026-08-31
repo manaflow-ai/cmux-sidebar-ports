@@ -76,9 +76,11 @@ jobs:
           comment_user_id="${COMMENT_USER_ID-}"
           case "${EVENT_NAME}" in
             pull_request_target)
-              if [[ "${EVENT_ACTION}" != "closed" ]]; then
-                admitted=true
-              fi
+              case "${EVENT_ACTION}" in
+                opened|edited|reopened|synchronize)
+                  admitted=true
+                  ;;
+              esac
               ;;
             issue_comment)
               if [[ "${EVENT_ACTION}" == "created" &&
