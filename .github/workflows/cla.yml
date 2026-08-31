@@ -4,7 +4,8 @@ on:
     types: [created]
   pull_request_target:
     branches: [main]
-    types: [opened,closed,reopened,synchronize]
+    # Run every non-closed pull request event through the live preflight.
+    types: [opened,closed,edited,reopened,synchronize]
 
 # Deny permissions by default. Each job grants only the API access it needs.
 permissions: {}
@@ -24,10 +25,10 @@ jobs:
       # with this set to read, despite the endpoint documentation allowing
       # issues:write. Keep write until that live behavior changes.
       pull-requests: write
-    # Serialize signature and lock updates for this repository. GitHub keeps
-    # one running and one pending run for this group by default.
+    # Serialize signature work for this pull request only. GitHub keeps one
+    # running and one pending run for this repository/PR group by default.
     concurrency:
-      group: cla-signatures
+      group: cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
     if: >-
       (
@@ -160,7 +161,7 @@ jobs:
             exit 1
           fi
 
-          if ! commits="$(jq -er '.commits | numbers' <<<"${pr_json}" 2>/dev/null)"; then
+          if ! commits="$(jq -er '.commits | numbers | select(. >= 0 and . == floor) | tostring' <<<"${pr_json}" 2>/dev/null)"; then
             echo "::error title=CLA commit preflight failed::GitHub returned no valid commit count for pull request ${PR_NUMBER}."
             exit 1
           fi
@@ -168,8 +169,10 @@ jobs:
             echo "::error title=CLA commit preflight failed::GitHub returned an invalid commit count for pull request ${PR_NUMBER}."
             exit 1
           fi
-          if (( commits > 100 )); then
-            echo "::error title=CLA commit limit exceeded::This pull request has ${commits} commits. CLA Assistant only checks the first 100 commits. Split the pull request before requesting CLA verification."
+          max_commits=1000
+          if (( ${#commits} > ${#max_commits} )) ||
+            { (( ${#commits} == ${#max_commits} )) && (( 10#${commits} > 10#${max_commits} )); }; then
+            echo "::error title=CLA commit limit exceeded::This pull request reports ${commits} commits. The maintained CLA action has a hard limit of ${max_commits} commits. Split the pull request before requesting CLA verification."
             exit 1
           fi
 
@@ -333,11 +336,11 @@ jobs:
     timeout-minutes: 10
     permissions:
       issues: write
-    # Serialize locking with signature writes so a merged pull request cannot
-    # race a still-running CLA update for the same repository. GitHub keeps
-    # one running and one pending run for this group by default.
+      pull-requests: read
+    # Keep merged-PR locking isolated to this repository and pull request.
+    # The live closed+merged preflight below is the only lock admission gate.
     concurrency:
-      group: cla-signatures
+      group: cla-lock-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     if: >-
       github.event_name == 'pull_request_target' &&
@@ -347,10 +350,96 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
+      EVENT_ACTION: ${{ github.event.action }}
+      EVENT_STATE: ${{ github.event.pull_request.state }}
+      EVENT_MERGED: ${{ github.event.pull_request.merged }}
+      EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      EVENT_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
+      EVENT_HEAD_REPO_ID: ${{ github.event.pull_request.head.repo.id }}
+      EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      EVENT_BASE_REPO_FULL_NAME: ${{ github.event.pull_request.base.repo.full_name }}
+      EVENT_BASE_REPO_ID: ${{ github.event.pull_request.base.repo.id }}
     steps:
       - name: "Lock merged pull request"
         run: |
           set -euo pipefail
+          if ! [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error title=CLA lock preflight failed::Invalid pull request number."
+            exit 1
+          fi
+          if [[ "${EVENT_ACTION}" != "closed" || "${EVENT_STATE}" != "closed" || "${EVENT_MERGED}" != "true" ]]; then
+            echo "::error title=CLA lock preflight failed::The close event is not a merged pull request event."
+            exit 1
+          fi
+          if [[ "${EVENT_BASE_REF}" != "main" || -z "${EVENT_BASE_REPO_FULL_NAME}" || -z "${EVENT_HEAD_REF}" || -z "${EVENT_HEAD_REPO_FULL_NAME}" ]]; then
+            echo "::error title=CLA lock preflight failed::The close event has incomplete repository identity."
+            exit 1
+          fi
+          if ! [[ "${EVENT_BASE_REPO_ID}" =~ ^[1-9][0-9]*$ ]] || ! [[ "${EVENT_HEAD_REPO_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error title=CLA lock preflight failed::The close event has an invalid repository ID."
+            exit 1
+          fi
+          if ! [[ "${EVENT_HEAD_SHA}" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+            echo "::error title=CLA lock preflight failed::The close event has an invalid head commit."
+            exit 1
+          fi
+
+          pr_endpoint="repos/${GH_REPO}/pulls/${PR_NUMBER}"
+          if ! pr_json="$(gh api "${pr_endpoint}" --jq '{state: .state, merged: (.merged_at != null), base_ref: .base.ref, base_repo_full_name: .base.repo.full_name, base_repo_id: .base.repo.id, head_ref: .head.ref, head_sha: .head.sha, head_repo_full_name: .head.repo.full_name, head_repo_id: .head.repo.id}' 2>/dev/null)"; then
+            echo "::error title=CLA lock preflight failed::Unable to query the live pull request state."
+            exit 1
+          fi
+          json_field() {
+            jq -er "$1" <<<"${pr_json}" 2>/dev/null
+          }
+          if ! live_state="$(json_field '.state')" || [[ "${live_state}" != "closed" ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request is not closed."
+            exit 1
+          fi
+          if ! live_merged="$(json_field '.merged')" || [[ "${live_merged}" != "true" ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request is not merged."
+            exit 1
+          fi
+          if ! live_base_ref="$(json_field '.base_ref | strings')" || [[ "${live_base_ref}" != "main" ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request does not target main."
+            exit 1
+          fi
+          if ! live_base_repo_full_name="$(json_field '.base_repo_full_name | strings')" || [[ "${live_base_repo_full_name}" != "${GH_REPO}" ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request targets a different repository."
+            exit 1
+          fi
+          if ! live_base_repo_id="$(json_field '.base_repo_id | numbers')" || ! [[ "${live_base_repo_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request has an invalid base repository ID."
+            exit 1
+          fi
+          if ! live_head_ref="$(json_field '.head_ref | strings')" || [[ -z "${live_head_ref}" ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request has no valid head ref."
+            exit 1
+          fi
+          if ! live_head_sha="$(json_field '.head_sha | strings')" || ! [[ "${live_head_sha}" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request has no valid head commit."
+            exit 1
+          fi
+          if ! live_head_repo_full_name="$(json_field '.head_repo_full_name | strings')" || [[ -z "${live_head_repo_full_name}" ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request has no valid head repository name."
+            exit 1
+          fi
+          if ! live_head_repo_id="$(json_field '.head_repo_id | numbers')" || ! [[ "${live_head_repo_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error title=CLA lock preflight failed::The live pull request has an invalid head repository ID."
+            exit 1
+          fi
+          if [[ "${live_base_repo_full_name}" != "${EVENT_BASE_REPO_FULL_NAME}" ||
+            "${live_base_repo_id}" != "${EVENT_BASE_REPO_ID}" ||
+            "${live_base_ref}" != "${EVENT_BASE_REF}" ||
+            "${live_head_ref}" != "${EVENT_HEAD_REF}" ||
+            "${live_head_sha}" != "${EVENT_HEAD_SHA}" ||
+            "${live_head_repo_full_name}" != "${EVENT_HEAD_REPO_FULL_NAME}" ||
+            "${live_head_repo_id}" != "${EVENT_HEAD_REPO_ID}" ]]; then
+            echo "::error title=CLA lock preflight failed::The close event does not match the live pull request identity."
+            exit 1
+          fi
+
           issue_endpoint="repos/${GH_REPO}/issues/${PR_NUMBER}"
           lock_endpoint="${issue_endpoint}/lock"
           if ! locked="$(gh api "${issue_endpoint}" --jq '.locked' 2>/dev/null)"; then
