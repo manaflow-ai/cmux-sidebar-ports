@@ -12,6 +12,53 @@ on:
 permissions: {}
 
 jobs:
+  CLACommentGate:
+    name: "CLACommentGate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      admitted: ${{ steps.admit.outputs.admitted }}
+    # This unprivileged gate performs the case-sensitive admission before the
+    # signer can enter its per-pull-request concurrency group.
+    steps:
+      - name: "Validate CLA event exactly"
+        id: admit
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          ISSUE_STATE: ${{ github.event.issue.state }}
+          ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          admitted=false
+          comment_body="${COMMENT_BODY-}"
+          case "${EVENT_NAME}" in
+            pull_request_target)
+              if [[ "${EVENT_ACTION}" != "closed" ]]; then
+                admitted=true
+              fi
+              ;;
+            issue_comment)
+              if [[ "${EVENT_ACTION}" == "created" &&
+                "${ISSUE_STATE}" == "open" &&
+                "${ISSUE_IS_PR}" == "true" ]]; then
+                case "${comment_body}" in
+                  recheck|"I have read the CLA Document and I hereby sign the CLA")
+                    admitted=true
+                    ;;
+                esac
+              fi
+              ;;
+          esac
+          printf 'admitted=%s\n' "${admitted}" >> "${GITHUB_OUTPUT}"
+          if [[ "${admitted}" == "true" ]]; then
+            echo "CLA event admitted"
+          else
+            echo "CLA event ignored"
+          fi
+
   CLAAssistant:
     name: "CLA Assistant v2"
     runs-on: ubuntu-latest
@@ -33,20 +80,10 @@ jobs:
     concurrency:
       group: cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
+    needs: CLACommentGate
     if: >-
-      (
-        github.event_name == 'pull_request_target' &&
-        github.event.action != 'closed'
-      ) ||
-      (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.state == 'open' &&
-        github.event.issue.pull_request &&
-        (
-          github.event.comment.body == 'recheck' ||
-          github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
-        )
-      )
+      needs.CLACommentGate.result == 'success' &&
+      needs.CLACommentGate.outputs.admitted == 'true'
     steps:
       - name: "Verify pull request identity and commit history"
         # Verify the live pull request identity and state because issue_comment
