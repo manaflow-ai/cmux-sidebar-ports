@@ -1,4 +1,5 @@
 name: "CLA Assistant v2"
+# CLA workflow generation: v2.2-action-c327a6f4071730000bf03f9f85c87d30e1fe8084
 on:
   issue_comment:
     types: [created]
@@ -311,7 +312,7 @@ jobs:
       - name: "CLA Assistant v2"
         # The action handles signing and status updates. Merged pull requests
         # use the separate lock job below so one job owns lock requests.
-        uses: manaflow-ai/cla-github-action@09d64fa8ba8b77ae253f354be6e1564d49317fa3 # reviewed in-org hardening, source and dist
+        uses: manaflow-ai/cla-github-action@c327a6f4071730000bf03f9f85c87d30e1fe8084 # maintained Manaflow fork, reviewed runtime+dist c327a6f
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
