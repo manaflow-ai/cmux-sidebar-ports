@@ -18,9 +18,11 @@ jobs:
     timeout-minutes: 5
     # Admit events per repository and pull request before signer queueing.
     # GitHub keeps one pending run per group, so a later event can replace
-    # an earlier pending gate; lossless ordering needs an external webhook.
+    # an earlier pending gate of the same event class; lossless ordering
+    # still needs an external webhook. Event classes keep comments from
+    # replacing a pending pull-request lifecycle admission.
     concurrency:
-      group: cla-admission-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number }}
+      group: cla-admission-${{ github.repository }}-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number }}
       cancel-in-progress: false
     permissions: {}
     outputs:
