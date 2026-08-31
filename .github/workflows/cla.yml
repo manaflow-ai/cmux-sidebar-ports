@@ -19,6 +19,8 @@ jobs:
     permissions:
       # The maintained action leaves failed-check recovery to a separate
       # exact-head rerun worker. Keep recovery advisory until that worker exists.
+      # The job result is the required check run; the action does not call the
+      # commit-status API, so statuses: write is intentionally absent.
       actions: read
       contents: write
       issues: write
