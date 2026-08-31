@@ -89,9 +89,9 @@ jobs:
           lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
-          # Keep this list explicit. A username prefix is not proof that an
-          # account is a GitHub bot and would let a human bypass the CLA.
-          allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot]
+          # Require the exact sentence documented in CLA.md. This disables the
+          # archived action's permissive phrase-matching fallback.
+          custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
 
   LockMergedPullRequest:
     name: "Lock merged pull request"
