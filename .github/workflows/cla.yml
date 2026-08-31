@@ -84,6 +84,9 @@ jobs:
             echo "::error title=CLA identity preflight failed::GitHub returned no positive base repository ID for pull request ${PR_NUMBER}."
             exit 1
           fi
+          # A signature needs a live, authenticated source repository. A
+          # deleted source cannot identify the signer, so the action fails
+          # closed here; merged locking has a separate null-head exception.
           if ! live_head_repo_full_name="$(jq -er '.head_repo_full_name | strings' <<<"${pr_json}" 2>/dev/null)" || [[ -z "${live_head_repo_full_name}" ]]; then
             echo "::error title=CLA identity preflight failed::GitHub returned no valid head repository name for pull request ${PR_NUMBER}."
             exit 1
