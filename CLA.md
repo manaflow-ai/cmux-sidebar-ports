@@ -2,7 +2,7 @@
 
 Thank you for your interest in cmux-sidebar-ports, an open-source project of Manaflow, Inc. (the "Company"). To clarify the intellectual property license granted with Contributions from any person or entity, the Company must have on file a signed Contributor License Agreement ("CLA") from each Contributor, indicating agreement with the license terms below. This agreement is for your protection as a Contributor as well as the protection of the Company and its users. It does not change your rights to use your own Contributions for any other purpose.
 
-Please complete and sign this Agreement, and return a signed copy to Manaflow, Inc. Read this document carefully before signing and keep a copy for your records.
+Read this Agreement carefully before signing. For contributions through GitHub, sign it by posting this exact sentence as a comment on your pull request: "I have read the CLA Document and I hereby sign the CLA". The CLA Assistant records that comment as your signature. If you contribute on behalf of an entity, contact Manaflow, Inc. before contributing and arrange a separate Corporate CLA.
 
 This Agreement is maintained in English and the English version controls. Any translation is provided for convenience only and does not change the terms of this Agreement.
 
