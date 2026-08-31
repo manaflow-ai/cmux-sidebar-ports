@@ -43,13 +43,22 @@ jobs:
         )
       )
     steps:
-      - name: "Reject pull requests over 100 commits"
+      - name: "Verify pull request identity and commit history"
         # The archived action only inspects the first 100 commits. Also verify
-        # the base and live state because issue_comment has no base ref.
+        # the live pull request identity and state because issue_comment has no
+        # pull request payload to compare.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EVENT_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
+          EVENT_HEAD_REPO_ID: ${{ github.event.pull_request.head.repo.id }}
+          EVENT_BASE_REPO_FULL_NAME: ${{ github.event.pull_request.base.repo.full_name }}
+          EVENT_BASE_REPO_ID: ${{ github.event.pull_request.base.repo.id }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           if ! [[ "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
@@ -58,9 +67,70 @@ jobs:
           fi
 
           pr_endpoint="repos/${GH_REPO}/pulls/${PR_NUMBER}"
-          if ! pr_json="$(gh api "${pr_endpoint}" --jq '{base_ref: .base.ref, state: .state, merged: (.merged_at != null), commits: .commits}' 2>/dev/null)"; then
+          if ! pr_json="$(gh api "${pr_endpoint}" --jq '{base_ref: .base.ref, base_repo_full_name: .base.repo.full_name, base_repo_id: .base.repo.id, head_ref: .head.ref, head_sha: .head.sha, head_repo_full_name: .head.repo.full_name, head_repo_id: .head.repo.id, state: .state, merged: (.merged_at != null), commits: .commits}' 2>/dev/null)"; then
             echo "::error title=CLA preflight failed::Unable to query pull request ${PR_NUMBER}."
             exit 1
+          fi
+
+          if ! live_base_repo_full_name="$(jq -er '.base_repo_full_name | strings' <<<"${pr_json}" 2>/dev/null)" || [[ -z "${live_base_repo_full_name}" ]]; then
+            echo "::error title=CLA identity preflight failed::GitHub returned no valid base repository name for pull request ${PR_NUMBER}."
+            exit 1
+          fi
+          if ! live_base_repo_id="$(jq -er '.base_repo_id | numbers' <<<"${pr_json}" 2>/dev/null)" || ! [[ "${live_base_repo_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error title=CLA identity preflight failed::GitHub returned no positive base repository ID for pull request ${PR_NUMBER}."
+            exit 1
+          fi
+          if ! live_head_repo_full_name="$(jq -er '.head_repo_full_name | strings' <<<"${pr_json}" 2>/dev/null)" || [[ -z "${live_head_repo_full_name}" ]]; then
+            echo "::error title=CLA identity preflight failed::GitHub returned no valid head repository name for pull request ${PR_NUMBER}."
+            exit 1
+          fi
+          if ! live_head_repo_id="$(jq -er '.head_repo_id | numbers' <<<"${pr_json}" 2>/dev/null)" || ! [[ "${live_head_repo_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error title=CLA identity preflight failed::GitHub returned no positive head repository ID for pull request ${PR_NUMBER}."
+            exit 1
+          fi
+          if ! live_head_sha="$(jq -er '.head_sha | strings' <<<"${pr_json}" 2>/dev/null)" || [[ -z "${live_head_sha}" ]] || ! [[ "${live_head_sha}" =~ ^[0-9A-Fa-f]+$ ]]; then
+            echo "::error title=CLA identity preflight failed::GitHub returned no valid head commit for pull request ${PR_NUMBER}."
+            exit 1
+          fi
+          if ! live_head_ref="$(jq -er '.head_ref | strings' <<<"${pr_json}" 2>/dev/null)" || [[ -z "${live_head_ref}" ]]; then
+            echo "::error title=CLA identity preflight failed::GitHub returned no valid head ref for pull request ${PR_NUMBER}."
+            exit 1
+          fi
+
+          if [[ "${live_base_repo_full_name}" != "${GH_REPO}" ]]; then
+            echo "::error title=CLA identity policy::Pull request ${PR_NUMBER} targets ${live_base_repo_full_name}, not ${GH_REPO}."
+            exit 1
+          fi
+
+          if [[ "${EVENT_NAME}" == "pull_request_target" ]]; then
+            if [[ -z "${EVENT_HEAD_SHA}" || -z "${EVENT_HEAD_REF}" || -z "${EVENT_HEAD_REPO_FULL_NAME}" || -z "${EVENT_BASE_REPO_FULL_NAME}" || -z "${EVENT_BASE_REF}" ]]; then
+              echo "::error title=CLA identity preflight failed::The pull_request_target payload is missing head or base repository identity for pull request ${PR_NUMBER}."
+              exit 1
+            fi
+            if ! [[ "${EVENT_HEAD_REPO_ID}" =~ ^[1-9][0-9]*$ ]] || ! [[ "${EVENT_BASE_REPO_ID}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error title=CLA identity preflight failed::The pull_request_target payload has an invalid repository ID for pull request ${PR_NUMBER}."
+              exit 1
+            fi
+            if ! [[ "${EVENT_HEAD_SHA}" =~ ^[0-9A-Fa-f]+$ ]]; then
+              echo "::error title=CLA identity preflight failed::The pull_request_target payload has an invalid head commit for pull request ${PR_NUMBER}."
+              exit 1
+            fi
+            if [[ "${EVENT_HEAD_SHA}" != "${live_head_sha}" ]]; then
+              echo "::error title=CLA identity policy::The pull_request_target head commit is stale for pull request ${PR_NUMBER}."
+              exit 1
+            fi
+            if [[ "${EVENT_HEAD_REF}" != "${live_head_ref}" ]]; then
+              echo "::error title=CLA identity policy::The pull_request_target head ref is stale for pull request ${PR_NUMBER}."
+              exit 1
+            fi
+            if [[ "${EVENT_HEAD_REPO_FULL_NAME}" != "${live_head_repo_full_name}" || "${EVENT_HEAD_REPO_ID}" != "${live_head_repo_id}" ]]; then
+              echo "::error title=CLA identity policy::The pull_request_target head repository identity is stale for pull request ${PR_NUMBER}."
+              exit 1
+            fi
+            if [[ "${EVENT_BASE_REPO_FULL_NAME}" != "${live_base_repo_full_name}" || "${EVENT_BASE_REPO_ID}" != "${live_base_repo_id}" ]]; then
+              echo "::error title=CLA identity policy::The pull_request_target base repository identity is stale for pull request ${PR_NUMBER}."
+              exit 1
+            fi
           fi
 
           if ! base_ref="$(jq -er '.base_ref | strings' <<<"${pr_json}" 2>/dev/null)"; then
@@ -69,6 +139,10 @@ jobs:
           fi
           if [[ "${base_ref}" != "main" ]]; then
             echo "::error title=CLA base branch policy::CLA Assistant only accepts pull requests targeting main."
+            exit 1
+          fi
+          if [[ "${EVENT_NAME}" == "pull_request_target" && "${EVENT_BASE_REF}" != "${base_ref}" ]]; then
+            echo "::error title=CLA identity policy::The pull_request_target base ref is stale for pull request ${PR_NUMBER}."
             exit 1
           fi
 
