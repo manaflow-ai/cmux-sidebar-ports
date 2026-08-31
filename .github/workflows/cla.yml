@@ -95,6 +95,11 @@ jobs:
     # Serialize signature work per event class, repository, and pull request.
     # A pending comment run cannot replace pull-request lifecycle validation;
     # sign and recheck comments intentionally share the issue_comment class.
+    # The maintained action retries 409 ledger conflicts by refetching,
+    # merging, and revalidating before each write, so PR groups can run in
+    # parallel without dropping another PR's signature.
+    # It also re-fetches accepted comments and the live PR before each write,
+    # rejecting edited or deleted declarations and stale bot markers.
     concurrency:
       group: cla-signatures-${{ github.repository }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
