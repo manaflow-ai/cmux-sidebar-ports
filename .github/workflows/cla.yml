@@ -243,17 +243,17 @@ jobs:
                       error("comment body is not a string")
                     else
                       ($body | ascii_downcase | gsub("^\\s+|\\s+$"; "")) as $normalized |
-                      select($normalized | test($broad_pattern)) |
+                      ($body | ascii_downcase | contains("cla assistant lite bot")) as $marker_present |
+                      select(($normalized | test($broad_pattern)) or $marker_present) |
                       (.user.login // "") as $login |
                       (.user.type // "") as $type |
                       (.user.id // 0) as $user_id |
                       if (($login | type) != "string" or ($type | type) != "string") then
                         error("comment author is malformed")
                       else
-                        ($body | ascii_downcase | contains("cla assistant lite bot")) as $canonical_marker |
                         (if ($login | endswith("[bot]")) then true else false end) as $bot_login |
-                        ($login == "github-actions[bot]" and $type == "Bot" and $user_id == 41898282 and $canonical_marker) as $is_canonical_bot |
-                        select(($is_canonical_bot | not) and (($normalized != $exact) or ($type != "User") or ($bot_login) or ($login == "")))
+                        ($login == "github-actions[bot]" and $type == "Bot" and $user_id == 41898282 and $marker_present) as $is_canonical_bot |
+                        select(($is_canonical_bot | not) and ($marker_present or (($normalized != $exact) or ($type != "User") or ($bot_login) or ($login == ""))))
                       end
                     end
                   ] | length
