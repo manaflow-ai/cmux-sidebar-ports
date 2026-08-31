@@ -82,10 +82,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-signatures: 'signatures/version1/cla.json'
-          path-to-document: 'https://github.com/manaflow-ai/cmux-sidebar-ports/blob/main/CLA.md'
+          # Pin the agreement to the commit that defines this workflow. If
+          # the terms change, update this workflow and use a new signatures
+          # version so existing signatures remain tied to the old terms.
+          path-to-document: 'https://github.com/manaflow-ai/cmux-sidebar-ports/blob/${{ github.workflow_sha }}/CLA.md'
           # The archived action calls the lock endpoint without the required
           # lock_reason. Disable that broken path and use the explicit step
-          # below, which supplies a valid reason and fails on API errors.
+          # separate job below, which supplies a valid reason and fails on API
+          # errors.
           lock-pullrequest-aftermerge: 'false'
           # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
           branch: 'cla-signatures'
