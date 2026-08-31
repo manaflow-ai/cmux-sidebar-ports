@@ -16,6 +16,30 @@ jobs:
     name: "CLACommentGate"
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Keep malformed and unrelated events out of the admission queue. The
+    # shell step below remains authoritative for case-sensitive validation.
+    if: >-
+      (
+        github.event_name == 'pull_request_target' &&
+        (
+          github.event.action == 'opened' ||
+          github.event.action == 'edited' ||
+          github.event.action == 'reopened' ||
+          github.event.action == 'synchronize'
+        )
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.action == 'created' &&
+        github.event.issue.state == 'open' &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.user.type == 'User' &&
+        github.event.comment.user.id > 0 &&
+        (
+          github.event.comment.body == 'recheck' ||
+          github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+        )
+      )
     # Admit events per repository and pull request before signer queueing.
     # GitHub keeps one pending run per group, so a later event can replace
     # an earlier pending gate of the same event class; lossless ordering
@@ -109,8 +133,33 @@ jobs:
     if: >-
       always() &&
       (
-        needs.CLACommentGate.result != 'success' ||
-        needs.CLACommentGate.outputs.admitted == 'true'
+        (
+          (
+            github.event_name == 'pull_request_target' &&
+            (
+              github.event.action == 'opened' ||
+              github.event.action == 'edited' ||
+              github.event.action == 'reopened' ||
+              github.event.action == 'synchronize'
+            )
+          ) ||
+          (
+            github.event_name == 'issue_comment' &&
+            github.event.action == 'created' &&
+            github.event.issue.state == 'open' &&
+            github.event.issue.pull_request != null &&
+            github.event.comment.user.type == 'User' &&
+            github.event.comment.user.id > 0 &&
+            (
+              github.event.comment.body == 'recheck' ||
+              github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
+            )
+          )
+        ) &&
+        (
+          needs.CLACommentGate.result != 'success' ||
+          needs.CLACommentGate.outputs.admitted == 'true'
+        )
       )
     steps:
       - name: "Require successful CLA event gate"
