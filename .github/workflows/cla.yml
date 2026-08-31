@@ -44,19 +44,6 @@ jobs:
       - name: "Reject pull requests over 100 commits"
         # The archived action only inspects the first 100 commits. Reject
         # larger pull requests instead of silently skipping unsigned authors.
-        if: >-
-          (
-            github.event_name == 'pull_request_target' &&
-            github.event.action != 'closed'
-          ) ||
-          (
-            github.event_name == 'issue_comment' &&
-            github.event.issue.pull_request &&
-            (
-              github.event.comment.body == 'recheck' ||
-              github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
-            )
-          )
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -77,19 +64,6 @@ jobs:
         # The action handles signing and status updates. Merged pull requests
         # use the separate lock job below because the archived action sends
         # an invalid lock request.
-        if: >-
-          (
-            github.event_name == 'pull_request_target' &&
-            github.event.action != 'closed'
-          ) ||
-          (
-            github.event_name == 'issue_comment' &&
-            github.event.issue.pull_request &&
-            (
-              github.event.comment.body == 'recheck' ||
-              github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
-            )
-          )
         uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
