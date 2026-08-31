@@ -38,10 +38,18 @@ jobs:
           ISSUE_STATE: ${{ github.event.issue.state }}
           ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
           COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_USER_TYPE: ${{ github.event.comment.user.type }}
+          COMMENT_USER_ID: ${{ github.event.comment.user.id }}
         run: |
           set -euo pipefail
+          # This shell comparison is deliberately case-sensitive. GitHub's
+          # expression equality for github.event.comment.user.type == 'User'
+          # is case-insensitive.
+          shopt -u nocasematch
           admitted=false
           comment_body="${COMMENT_BODY-}"
+          comment_user_type="${COMMENT_USER_TYPE-}"
+          comment_user_id="${COMMENT_USER_ID-}"
           case "${EVENT_NAME}" in
             pull_request_target)
               if [[ "${EVENT_ACTION}" != "closed" ]]; then
@@ -51,7 +59,9 @@ jobs:
             issue_comment)
               if [[ "${EVENT_ACTION}" == "created" &&
                 "${ISSUE_STATE}" == "open" &&
-                "${ISSUE_IS_PR}" == "true" ]]; then
+                "${ISSUE_IS_PR}" == "true" &&
+                "${comment_user_type}" == "User" &&
+                "${comment_user_id}" =~ ^[1-9][0-9]*$ ]]; then
                 case "${comment_body}" in
                   recheck|"I have read the CLA Document and I hereby sign the CLA")
                     admitted=true
@@ -233,12 +243,26 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_USER_TYPE: ${{ github.event.comment.user.type }}
+          COMMENT_USER_ID: ${{ github.event.comment.user.id }}
         run: |
           set -euo pipefail
           if [[ "${EVENT_NAME}" != "issue_comment" ]]; then
             exit 0
           fi
+          # Keep the shell check exact because GitHub expression equality is
+          # case-insensitive for github.event.comment.user.type == 'User'.
           shopt -u nocasematch
+          comment_user_type="${COMMENT_USER_TYPE-}"
+          comment_user_id="${COMMENT_USER_ID-}"
+          if [[ "${comment_user_type}" != "User" ]]; then
+            echo "::error title=CLA comment identity::The signing comment must be authored by a human GitHub user."
+            exit 1
+          fi
+          if ! [[ "${comment_user_id}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error title=CLA comment identity::The signing comment author must have a positive numeric GitHub user ID."
+            exit 1
+          fi
           case "${COMMENT_BODY}" in
             recheck|"I have read the CLA Document and I hereby sign the CLA")
               ;;
