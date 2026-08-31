@@ -5,22 +5,22 @@ on:
   pull_request_target:
     types: [opened,closed,reopened,synchronize]
 
-# Keep the token scoped to the GitHub API operations used by this action.
-permissions:
-  # The action inspects prior runs; its optional rerun request is best-effort.
-  actions: read
-  contents: write
-  issues: write
-  # GitHub's pull_request_target token denied issue comments for fork PRs with
-  # this set to read, despite the endpoint documentation allowing issues:write.
-  # Keep write until that live behavior changes.
-  pull-requests: write
-  statuses: write
+# Deny permissions by default. Each job grants only the API access it needs.
+permissions: {}
 
 jobs:
   CLAAssistant:
     name: "CLA Assistant"
     runs-on: ubuntu-latest
+    permissions:
+      # The action inspects prior runs; its optional rerun request is best-effort.
+      actions: read
+      contents: write
+      issues: write
+      # GitHub's pull_request_target token denied issue comments for fork PRs
+      # with this set to read, despite the endpoint documentation allowing
+      # issues:write. Keep write until that live behavior changes.
+      pull-requests: write
     # Serialize signature-file updates. The merged-PR lock job below is
     # independent so a later comment cannot replace a pending lock run.
     concurrency:
@@ -113,6 +113,8 @@ jobs:
   LockMergedPullRequest:
     name: "Lock merged pull request"
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     # Keep this job outside the signature concurrency group. It does not
     # modify the signature file and must not be replaced by a comment run.
     if: >-
