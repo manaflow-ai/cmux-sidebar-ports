@@ -4,7 +4,7 @@ on:
     types: [created]
   pull_request_target:
     branches: [main]
-    types: [opened,closed,reopened,synchronize]
+    types: [opened,closed,reopened,synchronize,edited]
 
 # Deny permissions by default. Each job grants only the API access it needs.
 permissions: {}
@@ -13,6 +13,7 @@ jobs:
   CLAAssistant:
     name: "CLA Assistant"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       # Temporary: v2.6.1 reruns the failed CLA workflow after signing and
       # requires actions: write. Remove this when rerun logic is isolated.
@@ -200,6 +201,7 @@ jobs:
   LockMergedPullRequest:
     name: "Lock merged pull request"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       issues: write
     # Serialize locking with signature writes so a merged pull request cannot
