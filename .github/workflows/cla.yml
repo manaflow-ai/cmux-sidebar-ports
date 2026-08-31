@@ -368,6 +368,10 @@ jobs:
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
           required-base-ref: 'main'
           require-opener-as-author: 'true'
+          # Authenticated opener exemptions: @austinywang (38676809) and
+          # @azooz2003-bit (67667005). These IDs apply only when GitHub
+          # authenticates the account as the pull request opener.
+          allowlist-ids: '38676809,67667005'
 
   LockMergedPullRequest:
     name: "Lock merged pull request"
