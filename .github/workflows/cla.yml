@@ -76,7 +76,6 @@ jobs:
       # exact-head rerun worker. Keep recovery advisory until that worker exists.
       # The job result is the required check run; the action does not call the
       # commit-status API, so statuses: write is intentionally absent.
-      actions: read
       contents: write
       issues: write
       # GitHub's pull_request_target token denied issue comments for fork PRs
