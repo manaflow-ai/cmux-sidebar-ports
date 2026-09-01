@@ -248,6 +248,9 @@ jobs:
             echo "::error title=CLA admission failed::The CLA event gate did not complete successfully with an admitted event."
             exit 1
           fi
+      - name: "CLA generation ${{ env.CLA_GENERATION }}"
+        if: success()
+        run: echo "CLA generation ${CLA_GENERATION}"
       - name: "Verify pull request identity and commit history"
         if: success()
         # Verify the live pull request identity and state because issue_comment
@@ -430,8 +433,10 @@ jobs:
         with:
           path-to-signatures: 'signatures/version2/cla.json'
           # Bind this privileged write to the exact head and base authenticated by the read-only preflight.
-          expected-head-sha: ${{ needs.CLASignerPreflight.outputs.head_sha }}
-          expected-base-sha: ${{ needs.CLASignerPreflight.outputs.base_sha }}
+          # Lifecycle events carry an authenticated head/base snapshot. Comment
+          # events use the read-only signer preflight outputs instead.
+          expected-head-sha: ${{ github.event.pull_request.head.sha || needs.CLASignerPreflight.outputs.head_sha }}
+          expected-base-sha: ${{ github.event.pull_request.base.sha || needs.CLASignerPreflight.outputs.base_sha }}
           # Pin the agreement to the commit that defines this workflow. If
           # the terms change, update this workflow and use a new signatures
           # version so existing signatures remain tied to the old terms.
@@ -491,6 +496,9 @@ jobs:
     timeout-minutes: 5
     permissions: {}
     steps:
+      - name: "CLA generation ${{ env.CLA_GENERATION }}"
+        if: success()
+        run: echo "CLA generation ${CLA_GENERATION}"
       - name: "Publish CLA result"
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -605,6 +613,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          CLA_GENERATION: ${{ env.CLA_GENERATION }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_ACTION: ${{ github.event.action }}
           PR_NUMBER: ${{ github.event.issue.number }}
