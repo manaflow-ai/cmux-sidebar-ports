@@ -503,7 +503,7 @@ jobs:
           allowlist-ids: '38676809,67667005'
 
   CLAResult:
-    name: "CLA Assistant v3"
+    name: "CLA Assistant v3 gate result"
     needs:
       - CLACommentGate
       - CLASignerPreflight
