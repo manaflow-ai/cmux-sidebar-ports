@@ -69,6 +69,9 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_USER_TYPE: ${{ github.event.comment.user.type }}
           COMMENT_USER_ID: ${{ github.event.comment.user.id }}
+          COMMENT_USER_LOGIN: ${{ github.event.comment.user.login }}
+          COMMENT_ASSOCIATION: ${{ github.event.comment.author_association }}
+          PR_AUTHOR_ID: ${{ github.event.issue.user.id }}
         run: |
           set -euo pipefail
           # This shell comparison is deliberately case-sensitive. GitHub's
@@ -79,6 +82,9 @@ jobs:
           comment_body="${COMMENT_BODY-}"
           comment_user_type="${COMMENT_USER_TYPE-}"
           comment_user_id="${COMMENT_USER_ID-}"
+          comment_user_login="${COMMENT_USER_LOGIN-}"
+          comment_association="${COMMENT_ASSOCIATION-}"
+          pr_author_id="${PR_AUTHOR_ID-}"
           case "${EVENT_NAME}" in
             pull_request_target)
               case "${EVENT_ACTION}" in
@@ -92,10 +98,21 @@ jobs:
                 "${ISSUE_STATE}" == "open" &&
                 "${ISSUE_IS_PR}" == "true" &&
                 "${comment_user_type}" == "User" &&
-                "${comment_user_id}" =~ ^[1-9][0-9]*$ ]]; then
+                "${comment_user_id}" =~ ^[1-9][0-9]*$ &&
+                -n "${comment_user_login}" &&
+                "$(printf '%s' "${comment_user_login}" | tr '[:upper:]' '[:lower:]')" != *"[bot]" ]]; then
                 case "${comment_body}" in
-                  recheck|"I have read the CLA Document and I hereby sign the CLA")
+                  "I have read the CLA Document and I hereby sign the CLA")
                     admitted=true
+                    ;;
+                  recheck)
+                    if [[ "${comment_user_id}" == "${pr_author_id}" ]]; then
+                      admitted=true
+                    else
+                      case "${comment_association}" in
+                        OWNER|MEMBER|COLLABORATOR) admitted=true ;;
+                      esac
+                    fi
                     ;;
                 esac
               fi
@@ -445,6 +462,8 @@ jobs:
     # refreshes the PR check after a signature comment.
     if: >-
       always() &&
+      needs.CLACommentGate.result == 'success' &&
+      needs.CLACommentGate.outputs.admitted == 'true' &&
       (
         (
           github.event_name == 'pull_request_target' &&
@@ -478,6 +497,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           COMMENT_BODY: ${{ github.event.comment.body || '' }}
           COMMENT_ASSOCIATION: ${{ github.event.comment.author_association || '' }}
+          COMMENT_USER_ID: ${{ github.event.comment.user.id || '' }}
+          PR_AUTHOR_ID: ${{ github.event.issue.user.id || '' }}
           GATE_RESULT: ${{ needs.CLACommentGate.result }}
           GATE_ADMITTED: ${{ needs.CLACommentGate.outputs.admitted || '' }}
           PREFLIGHT_RESULT: ${{ needs.CLASignerPreflight.result }}
@@ -501,15 +522,16 @@ jobs:
           fi
           if [[ "${EVENT_NAME}" == "issue_comment" &&
                 "${COMMENT_BODY}" == "recheck" ]]; then
-            case "${COMMENT_ASSOCIATION}" in
-              OWNER|MEMBER|COLLABORATOR)
-                [[ "${WRITER_RESULT}" == "success" ]] ||
-                  fail "The trusted CLA recheck did not complete successfully."
-                ;;
-              *)
-                echo "::notice::Ignoring an untrusted CLA recheck; no privileged signer was started."
-                ;;
-            esac
+            if [[ "${COMMENT_USER_ID}" == "${PR_AUTHOR_ID}" ]]; then
+              :
+            else
+              case "${COMMENT_ASSOCIATION}" in
+                OWNER|MEMBER|COLLABORATOR) : ;;
+                *) fail "The CLA recheck commenter is not authorized." ;;
+              esac
+            fi
+            [[ "${WRITER_RESULT}" == "success" ]] ||
+              fail "The trusted CLA recheck did not complete successfully."
             exit 0
           fi
           [[ "${WRITER_RESULT}" == "success" ]] ||
