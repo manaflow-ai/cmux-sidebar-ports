@@ -1,5 +1,5 @@
 name: "CLA Assistant v2"
-# CLA workflow generation: v2.2-action-5749bd2e5867b7545e66b55ac44acf616595bde3
+# CLA workflow generation: v2.2-action-b4d3c4fab86d21e7775c63522d4b39b3724ea4bf
 on:
   issue_comment:
     types: [created]
@@ -14,7 +14,7 @@ permissions: {}
 # Change this marker only when the CLA policy or maintained action changes.
 # It keeps exact-head workers tied to a stable policy generation.
 env:
-  CLA_GENERATION: 'v2.2-action-5749bd2e5867b7545e66b55ac44acf616595bde3'
+  CLA_GENERATION: 'v2.2-action-b4d3c4fab86d21e7775c63522d4b39b3724ea4bf'
 
 jobs:
   CLACommentGate:
@@ -46,11 +46,10 @@ jobs:
           github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
         )
       )
-    # Give each event its own admission run. GitHub keeps only one pending run
-    # per concurrency group, so a shared PR key can discard a valid signing
-    # comment. The key contains only numeric event identity, never comment
-    # text or actor data. This unprivileged gate is cheap; the maintained action
-    # bounds contributor-controlled API reads before any write.
+    # The group includes the immutable comment ID or workflow run ID. GitHub
+    # keeps one pending run per group, so one valid event cannot replace another.
+    # The repository and pull-request prefix keeps admission queues independent
+    # across repositories and pull requests.
     concurrency:
       group: cla-admission-${{ github.repository }}-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number }}-${{ github.event.comment.id || github.run_id }}
       cancel-in-progress: false
@@ -58,7 +57,7 @@ jobs:
     outputs:
       admitted: ${{ steps.admit.outputs.admitted }}
     # This unprivileged gate performs the case-sensitive admission before the
-    # signer can enter its per-pull-request concurrency group.
+    # signer can enter its event-specific concurrency group.
     steps:
       - name: "Validate CLA event exactly"
         id: admit
@@ -150,10 +149,13 @@ jobs:
       opener_not_in_commits: ${{ steps.preflight.outputs.opener_not_in_commits }}
       head_sha: ${{ steps.preflight.outputs.head_sha }}
       base_sha: ${{ steps.preflight.outputs.base_sha }}
+      comment_id: ${{ steps.preflight.outputs.comment_id }}
+      comment_created_at: ${{ steps.preflight.outputs.comment_created_at }}
+      comment_author_id: ${{ steps.preflight.outputs.comment_author_id }}
     steps:
       - name: "Authenticate current CLA signer"
         id: preflight
-        uses: manaflow-ai/cla-github-action@5749bd2e5867b7545e66b55ac44acf616595bde3 # signer-preflight requires the merged maintained action
+        uses: manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf # signer-preflight requires the merged maintained action
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -180,15 +182,14 @@ jobs:
       # The action only reads pull-request metadata. Keep this permission read-only;
       # issue comments and ledger commits use the narrowly scoped permissions above.
       pull-requests: read
-    # Serialize all admitted writer events per repository. The maintained action uses
-    # bounded optimistic compare-and-swap retries for the shared ledger and
-    # revalidates the live PR before each write, so concurrent PRs are safe.
-    # The PR key avoids cross-PR blocking; GitHub can still replace one pending same-PR run, so
-    # the maintained action and exact recheck path provide bounded recovery.
+    # Include the immutable event ID in the group so GitHub cannot replace a
+    # pending signing event. Distinct events may write the shared ledger at the
+    # same time; the maintained action uses bounded optimistic compare-and-swap
+    # retries and live-head checks to merge conflicts safely.
     # It also re-fetches accepted signing comments and the live PR before each
     # ledger write, rejecting edited or deleted declarations before persistence.
     concurrency:
-      group: "cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}"
+      group: "cla-signatures-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event.comment.id || github.run_id }}"
       cancel-in-progress: false
     needs:
       - CLACommentGate
@@ -468,7 +469,7 @@ jobs:
         if: success()
         # The action handles signing and status updates. Merged pull requests
         # use the separate lock job below so one job owns lock requests.
-        uses: manaflow-ai/cla-github-action@5749bd2e5867b7545e66b55ac44acf616595bde3 # reviewed maintained fork runtime+dist
+        uses: manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf # reviewed maintained fork runtime+dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -478,6 +479,9 @@ jobs:
           # events use the read-only signer preflight outputs instead.
           expected-head-sha: ${{ github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA' && needs.CLASignerPreflight.outputs.head_sha || steps.cla-revision.outputs.head_sha }}
           expected-base-sha: ${{ github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA' && needs.CLASignerPreflight.outputs.base_sha || steps.cla-revision.outputs.base_sha }}
+          expected-comment-id: ${{ github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA' && needs.CLASignerPreflight.outputs.comment_id || '' }}
+          expected-comment-created-at: ${{ github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA' && needs.CLASignerPreflight.outputs.comment_created_at || '' }}
+          expected-comment-author-id: ${{ github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA' && needs.CLASignerPreflight.outputs.comment_author_id || '' }}
           # Pin the agreement to the commit that defines this workflow. If
           # the terms change, update this workflow and use a new signatures
           # version so existing signatures remain tied to the old terms.
@@ -855,7 +859,7 @@ jobs:
     runs-on: ubuntu-24.04 # github-hosted-required: CLA policy jobs
     timeout-minutes: 10
     concurrency:
-      group: "cla-check-refresh-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}"
+      group: "cla-check-refresh-${{ github.repository }}-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event.comment.id || github.run_id }}"
       cancel-in-progress: false
     permissions:
       contents: read
@@ -887,7 +891,7 @@ jobs:
           EXPECTED_REPO: 'manaflow-ai/cmux-sidebar-ports'
           REPOSITORY_ID: ${{ github.repository_id || '' }}
           WORKFLOW_SHA: ${{ github.workflow_sha || '' }}
-          EXPECTED_GENERATION: 'v2.2-action-5749bd2e5867b7545e66b55ac44acf616595bde3'
+          EXPECTED_GENERATION: 'v2.2-action-b4d3c4fab86d21e7775c63522d4b39b3724ea4bf'
           CLA_GENERATION: ${{ env.CLA_GENERATION }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || '' }}
           EVENT_PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || '' }}
