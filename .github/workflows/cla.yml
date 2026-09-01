@@ -1,4 +1,4 @@
-name: "CLA Assistant v2"
+name: "CLA Assistant v3"
 # CLA workflow generation: v2.2-action-b4d3c4fab86d21e7775c63522d4b39b3724ea4bf
 on:
   issue_comment:
@@ -465,7 +465,7 @@ jobs:
           printf 'head_sha=%s\n' "$(jq -r '.head.sha' <<<"${pr_json}")" >> "${GITHUB_OUTPUT}"
           printf 'base_sha=%s\n' "$(jq -r '.base.sha' <<<"${pr_json}")" >> "${GITHUB_OUTPUT}"
 
-      - name: "CLA Assistant v2"
+      - name: "CLA Assistant v3"
         if: success()
         # The action handles signing and status updates. Merged pull requests
         # use the separate lock job below so one job owns lock requests.
@@ -501,7 +501,7 @@ jobs:
           allowlist-ids: '38676809,67667005'
 
   CLAResult:
-    name: "CLA Assistant v2"
+    name: "CLA Assistant v3"
     needs:
       - CLACommentGate
       - CLASignerPreflight
